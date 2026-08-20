@@ -41,7 +41,6 @@ jobs:
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
         sudo apt clean
-        df -h
 
     - name: Setup Tools & Dependencies
       run: |
@@ -61,17 +60,28 @@ jobs:
         repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b ${{ github.event.inputs.MANIFEST_BRANCH }} --git-lfs
         repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
 
-    - name: Clone Device Tree
+    - name: Clone & Patch Device Tree
       run: |
         cd /home/runner/workdir
         git clone --depth=1 ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ${{ github.event.inputs.DEVICE_PATH }}
+        
+        # Fix obsolete PRODUCT_STATIC_BOOT_CONTROL_HAL on Android 12.1+
+        sed -i '/PRODUCT_STATIC_BOOT_CONTROL_HAL/,+4d' ${{ github.event.inputs.DEVICE_PATH }}/device.mk
+        sed -i 's/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g' ${{ github.event.inputs.DEVICE_PATH }}/device.mk
+        
+        # Ensure twrp product makefile exists
+        if [ -f "${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME }}.mk" ] && [ ! -f "${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME }}.mk" ]; then
+          cp ${{ github.event.inputs.DEVICE_PATH }}/omni_${{ github.event.inputs.DEVICE_NAME }}.mk ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME }}.mk
+          sed -i 's/omni_/twrp_/g' ${{ github.event.inputs.DEVICE_PATH }}/twrp_${{ github.event.inputs.DEVICE_NAME }}.mk
+        fi
 
     - name: Compile TWRP
       run: |
         cd /home/runner/workdir
         export ALLOW_MISSING_DEPENDENCIES=true
+        export LC_ALL=C
         source build/envsetup.sh
-        lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng
+        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
         mka ${{ github.event.inputs.BUILD_TARGET }} -j$(nproc --all)
 
     - name: Prepare Artifacts
