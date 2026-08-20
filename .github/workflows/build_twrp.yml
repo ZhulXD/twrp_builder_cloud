@@ -1,6 +1,9 @@
 name: Build TWRP Recovery
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -42,13 +45,12 @@ jobs:
         
         TREE="device/xiaomi/water"
         
-        # Strip all obsolete and omni references
-        find $TREE -name "*.mk" -exec sed -i "s|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g" {} +
-        find $TREE -name "*.mk" -exec sed -i "s/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g" {} +
+        # Replace vendor/omni with vendor/twrp across all makefiles
+        find $TREE -type f -name "*.mk" -exec sed -i "s|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g" {} +
+        find $TREE -type f -name "*.mk" -exec sed -i "s/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g" {} +
         
-        # Create twrp_water.mk if missing
-        if [ ! -f "$TREE/twrp_water.mk" ]; then
-          cat << MK_EOF > $TREE/twrp_water.mk
+        # Create twrp_water.mk
+        cat << 'MK_EOF' > $TREE/twrp_water.mk
 $(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
 $(call inherit-product, vendor/twrp/config/common.mk)
 $(call inherit-product, device/xiaomi/water/device.mk)
@@ -59,12 +61,11 @@ PRODUCT_BRAND := Redmi
 PRODUCT_MODEL := water
 PRODUCT_MANUFACTURER := xiaomi
 MK_EOF
-        fi
-        
-        # Clean AndroidProducts.mk
-        cat << AP_EOF > $TREE/AndroidProducts.mk
+
+        # Create AndroidProducts.mk
+        cat << 'AP_EOF' > $TREE/AndroidProducts.mk
 PRODUCT_MAKEFILES := \
-    \$(LOCAL_DIR)/twrp_water.mk
+    $(LOCAL_DIR)/twrp_water.mk
 
 COMMON_LUNCH_CHOICES := \
     twrp_water-eng \
