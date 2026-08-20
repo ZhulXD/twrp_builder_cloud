@@ -2,9 +2,6 @@ name: Build TWRP Recovery
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   build:
@@ -38,24 +35,34 @@ jobs:
         repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1 --git-lfs
         repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
 
-    - name: Clone & Adapt Device Tree
+    - name: Clone & Setup Device Tree
       run: |
         cd /home/runner/workdir
         git clone --depth=1 https://github.com/RushilPCM/twrp_water.git -b main device/xiaomi/water
         
-        TREE_DIR="device/xiaomi/water"
+        TREE="device/xiaomi/water"
         
-        sed -i "s|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g" $TREE_DIR/*.mk || true
-        sed -i "s|omni_|twrp_|g" $TREE_DIR/*.mk || true
+        # Strip all obsolete and omni references
+        find $TREE -name "*.mk" -exec sed -i "s|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g" {} +
+        find $TREE -name "*.mk" -exec sed -i "s/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g" {} +
         
-        if [ -f "$TREE_DIR/omni_water.mk" ]; then
-          mv "$TREE_DIR/omni_water.mk" "$TREE_DIR/twrp_water.mk"
+        # Create twrp_water.mk if missing
+        if [ ! -f "$TREE/twrp_water.mk" ]; then
+          cat << MK_EOF > $TREE/twrp_water.mk
+$(call inherit-product, $(SRC_TARGET_DIR)/product/full_base_telephony.mk)
+$(call inherit-product, vendor/twrp/config/common.mk)
+$(call inherit-product, device/xiaomi/water/device.mk)
+
+PRODUCT_DEVICE := water
+PRODUCT_NAME := twrp_water
+PRODUCT_BRAND := Redmi
+PRODUCT_MODEL := water
+PRODUCT_MANUFACTURER := xiaomi
+MK_EOF
         fi
         
-        sed -i "/PRODUCT_STATIC_BOOT_CONTROL_HAL/,+5d" $TREE_DIR/*.mk || true
-        sed -i "s/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g" $TREE_DIR/*.mk || true
-        
-        cat << AP_EOF > $TREE_DIR/AndroidProducts.mk
+        # Clean AndroidProducts.mk
+        cat << AP_EOF > $TREE/AndroidProducts.mk
 PRODUCT_MAKEFILES := \
     \$(LOCAL_DIR)/twrp_water.mk
 
@@ -81,5 +88,5 @@ AP_EOF
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: TWRP-water-Images
+        name: TWRP-water-Boot
         path: output/*
