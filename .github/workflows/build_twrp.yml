@@ -2,31 +2,9 @@ name: Build TWRP Recovery
 
 on:
   workflow_dispatch:
-    inputs:
-      MANIFEST_BRANCH:
-        description: 'TWRP Manifest Branch'
-        required: true
-        default: 'twrp-12.1'
-      DEVICE_TREE_URL:
-        description: 'Device Tree Repo'
-        required: true
-        default: 'https://github.com/RushilPCM/twrp_water.git'
-      DEVICE_TREE_BRANCH:
-        description: 'Device Tree Branch'
-        required: true
-        default: 'main'
-      DEVICE_PATH:
-        description: 'Device Path'
-        required: true
-        default: 'device/xiaomi/water'
-      DEVICE_NAME:
-        description: 'Device Codename'
-        required: true
-        default: 'water'
-      BUILD_TARGET:
-        description: 'Build Target'
-        required: true
-        default: 'bootimage'
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -57,33 +35,29 @@ jobs:
       run: |
         mkdir -p /home/runner/workdir
         cd /home/runner/workdir
-        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b ${{ github.event.inputs.MANIFEST_BRANCH }} --git-lfs
+        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1 --git-lfs
         repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
 
     - name: Clone & Adapt Device Tree
       run: |
         cd /home/runner/workdir
-        git clone --depth=1 ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ${{ github.event.inputs.DEVICE_PATH }}
+        git clone --depth=1 https://github.com/RushilPCM/twrp_water.git -b main device/xiaomi/water
         
-        TREE_DIR="${{ github.event.inputs.DEVICE_PATH }}"
+        TREE_DIR="device/xiaomi/water"
         
-        # Replace vendor/omni with vendor/twrp
-        sed -i 's|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g' $TREE_DIR/*.mk || true
-        sed -i 's|omni_|twrp_|g' $TREE_DIR/*.mk || true
+        sed -i "s|vendor/omni/config/common.mk|vendor/twrp/config/common.mk|g" $TREE_DIR/*.mk || true
+        sed -i "s|omni_|twrp_|g" $TREE_DIR/*.mk || true
         
-        # Rename makefiles to match twrp
-        if [ -f "$TREE_DIR/omni_${{ github.event.inputs.DEVICE_NAME }}.mk" ]; then
-          mv "$TREE_DIR/omni_${{ github.event.inputs.DEVICE_NAME }}.mk" "$TREE_DIR/twrp_${{ github.event.inputs.DEVICE_NAME }}.mk"
+        if [ -f "$TREE_DIR/omni_water.mk" ]; then
+          mv "$TREE_DIR/omni_water.mk" "$TREE_DIR/twrp_water.mk"
         fi
         
-        # Fix obsolete static HAL
-        sed -i '/PRODUCT_STATIC_BOOT_CONTROL_HAL/,+5d' $TREE_DIR/*.mk || true
-        sed -i 's/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g' $TREE_DIR/*.mk || true
+        sed -i "/PRODUCT_STATIC_BOOT_CONTROL_HAL/,+5d" $TREE_DIR/*.mk || true
+        sed -i "s/PRODUCT_STATIC_BOOT_CONTROL_HAL.*//g" $TREE_DIR/*.mk || true
         
-        # Update AndroidProducts.mk
-        cat << 'AP_EOF' > $TREE_DIR/AndroidProducts.mk
+        cat << AP_EOF > $TREE_DIR/AndroidProducts.mk
 PRODUCT_MAKEFILES := \
-    $(LOCAL_DIR)/twrp_water.mk
+    \$(LOCAL_DIR)/twrp_water.mk
 
 COMMON_LUNCH_CHOICES := \
     twrp_water-eng \
@@ -96,16 +70,16 @@ AP_EOF
         export ALLOW_MISSING_DEPENDENCIES=true
         export LC_ALL=C
         source build/envsetup.sh
-        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng
-        mka ${{ github.event.inputs.BUILD_TARGET }} -j$(nproc --all)
+        lunch twrp_water-eng
+        mka bootimage -j$(nproc --all)
 
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        find /home/runner/workdir/out/target/product/${{ github.event.inputs.DEVICE_NAME }} -name "*.img" -exec cp {} output/ \;
+        find /home/runner/workdir/out/target/product/water -name "*.img" -exec cp {} output/ \;
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-Images
+        name: TWRP-water-Images
         path: output/*
