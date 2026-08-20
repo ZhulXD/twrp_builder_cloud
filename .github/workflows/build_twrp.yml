@@ -1,4 +1,4 @@
-name: Build TWRP Recovery for Redmi Cloud/Water
+name: Build TWRP Recovery
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ on:
         required: true
         default: 'vnd_water-user-12-SP1A.210812.016-V14.0.3.0.TGOINXM-release-keys'
       DEVICE_PATH:
-        description: 'Device Path in Source'
+        description: 'Device Path'
         required: true
         default: 'device/xiaomi/water'
       DEVICE_NAME:
@@ -30,26 +30,23 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     steps:
-    - name: Maximize Build Space
-      uses: easimon/maximize-build-space@master
-      with:
-        root-reserve-mb: 1024
-        swap-size-mb: 10240
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
-        remove-docker-images: 'true'
-
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Environment & Dependencies
+    - name: Clean Environment
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo apt clean
+        docker rmi $(docker images -q) || true
+
+    - name: Setup Tools & Dependencies
       run: |
         sudo apt update
-        sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 python-is-python3 libssl-dev bc
+        sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 python-is-python3 libssl-dev bc rsync libncurses5-dev libreadline-dev
         git config --global user.name "ZhulXD"
         git config --global user.email "zhulxd@users.noreply.github.com"
         mkdir -p ~/bin
@@ -57,21 +54,22 @@ jobs:
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
 
-    - name: Sync TWRP Source
+    - name: Initialize TWRP Tree
       run: |
-        mkdir -p ${{ runner.temp }}/workdir
-        cd ${{ runner.temp }}/workdir
-        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b ${{ github.event.inputs.MANIFEST_BRANCH }}
-        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+        mkdir -p /home/runner/workdir
+        cd /home/runner/workdir
+        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b ${{ github.event.inputs.MANIFEST_BRANCH }} --git-lfs
+        repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
 
     - name: Clone Device Tree
       run: |
-        cd ${{ runner.temp }}/workdir
+        cd /home/runner/workdir
         git clone --depth=1 ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ${{ github.event.inputs.DEVICE_PATH }}
 
-    - name: Build Recovery Target
+    - name: Compile TWRP
       run: |
-        cd ${{ runner.temp }}/workdir
+        cd /home/runner/workdir
+        export ALLOW_MISSING_DEPENDENCIES=true
         source build/envsetup.sh
         lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng || lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng
         mka ${{ github.event.inputs.BUILD_TARGET }} -j$(nproc --all)
@@ -79,10 +77,10 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p output
-        find ${{ runner.temp }}/workdir/out/target/product/${{ github.event.inputs.DEVICE_NAME }} -name "*.img" -exec cp {} output/ \;
+        find /home/runner/workdir/out/target/product/${{ github.event.inputs.DEVICE_NAME }} -name "*.img" -exec cp {} output/ \;
 
-    - name: Upload Recovery Artifacts
+    - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-Output
+        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}-Images
         path: output/*
